@@ -1,7 +1,7 @@
 src = $(wildcard *.c)
 obj = $(src:.c=.o)
 
-CFLAGS = -Wall -Werror 
+CFLAGS = -Wall -Werror -Iinclude/
 LDFLAGS = 
 
 probe_sniffer: $(obj)

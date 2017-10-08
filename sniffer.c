@@ -3,16 +3,17 @@
 #include <sys/socket.h>
 #include <errno.h>
 #include <arpa/inet.h>
-#include <linux/if_ether.h>
-#include <sys/ioctl.h>
-#include <net/if.h>
+
 #include <string.h>
-#include <sys/ioctl.h>
 #include <linux/if_packet.h>
 #include <endian.h>
 #include <stdbool.h>
 #include <stdlib.h>
+
 #include <linux/wireless.h>
+#include <linux/if_ether.h>
+
+#include "ifctrl.h"
 
 struct ieee80211_radiotap_header {
         u_int8_t        it_version;     /* set to 0 */
@@ -47,8 +48,6 @@ char* bin2hex(unsigned char* bin, size_t size, char* delimiter){
 	} 
 	
 	char* hex = malloc(size * (2+delim_len) - delim_len + 1);
-
-
 	if (!hex) return NULL;
 
 	if (!delimiter){
@@ -63,145 +62,6 @@ char* bin2hex(unsigned char* bin, size_t size, char* delimiter){
 	}
 	return hex;
 }
-
-
-int set_ifname(struct ifreq* ifr, char* ifname){
-	size_t if_name_len = strlen(ifname);
-	if (if_name_len > sizeof(ifr->ifr_name)){
-		printf("Interface name is too long!\n");
-		return -1;
-	}
-	memcpy(ifr->ifr_name, ifname, if_name_len);
-	return 0;
-}
-
-int ifindex_from_name(char* ifname, int socket){
-	struct ifreq ifr;
-	
-	if (set_ifname(&ifr, ifname) != 0) return -1;
-
-	if (ioctl(socket,SIOCGIFINDEX,&ifr)==-1) {
-	    printf("%s",strerror(errno));
-		return -1;
-	}
-
-	return ifr.ifr_ifindex;
-}
-
-
-int interface_get_flags(char* ifname, int socket, short* flags){
-	struct ifreq ifr;
-	if (set_ifname(&ifr, ifname) != 0) return -1;
-
-	if (ioctl(socket,SIOCGIFFLAGS,&ifr)==-1) {
-	    printf("%s",strerror(errno));
-		return -1;
-	}
-
-	*flags = ifr.ifr_flags;	
-	return 0;
-}
-
-int interface_set_flags(char* ifname, int socket, short flags){
-	struct ifreq ifr;
-	if (set_ifname(&ifr, ifname) != 0) return -1;
-
-	ifr.ifr_flags = flags;
-
-	if (ioctl(socket,SIOCSIFFLAGS,&ifr)==-1) {
-	    printf("%s",strerror(errno));
-		return -1;
-	}
-	return 0;
-}
-
-
-int interface_is_up(char* ifname, int socket){
-	short flags;
-	if (interface_get_flags(ifname, socket, &flags) != 0){
-		return -1;
-	}
-
-	return flags & IFF_UP;
-} 
-
-int get_wireless_mode(char* ifname, int socket){
-	struct iwreq ifr;
-	size_t if_name_len = strlen(ifname);
-
-	if (if_name_len > sizeof(ifr.ifr_name)){
-		printf("Interface name is too long!\n");
-		return -1;
-	}
-	memcpy(ifr.ifr_name, ifname, if_name_len);
-
-	if (ioctl(socket,SIOCGIWMODE,&ifr)==-1) {
-	    printf("%s\n",strerror(errno));
-		return -1;
-	}
-	
-	return ifr.u.mode;
-}
-
-int shutdown_if(char* ifname, int socket){
-	struct ifreq ifr;
-	if (set_ifname(&ifr, ifname) != 0) return -1;
-	
-	printf("Shutting down device...\n");
-	short flags;
-	if (interface_get_flags(ifname, socket, &flags) != 0) return -1;
-
-	flags = flags & !IFF_UP;
-
-	if (interface_set_flags(ifname, socket, flags) != 0) return -1;
-
-	return 0;
-}
-
-int start_if(char* ifname, int socket){
-	struct ifreq ifr;
-	if (set_ifname(&ifr, ifname) != 0) return -1;
-	
-	printf("Starting device...\n");
-	short flags;
-	if (interface_get_flags(ifname, socket, &flags) != 0) return -1;
-
-	flags = flags | IFF_UP;
-
-	if (interface_set_flags(ifname, socket, flags) != 0) return -1;
-	printf("Device started\n"); 
-	return 0;
-} 
-
-
-int set_wireless_mode(char* ifname, int socket, int mode){
-	struct iwreq ifr;
-	size_t if_name_len = strlen(ifname);
-
-	if (shutdown_if(ifname, socket) == -1) return -1;
-
-	if (if_name_len > sizeof(ifr.ifr_name)){
-		printf("Interface name is too long!\n");
-		return -1;
-	}
-	memcpy(ifr.ifr_name, ifname, if_name_len);
-
-
-	printf("Changing wireless mode...\n");
-	ifr.u.mode = mode;
-
-	if (ioctl(socket,SIOCSIWMODE,&ifr)==-1) {
-	    printf("%s\n",strerror(errno));
-		return -1;
-	}
-	
-	if (start_if(ifname, socket) == -1) return -1;
-
-
-	printf("Wireless mode changed.\n");
-	return 0;
-}
-
 
 void parse_IE(unsigned char* buffer, size_t size){
 		// parse Information Elements
@@ -309,24 +169,24 @@ int main(int argc, char**argv){
 	char* ifname = "wlp7s0";
 
 
-	if (interface_is_up(ifname,sock) != 1){
+	if (ifctrl_is_up(ifname) != 1){
 		printf("Interface %s is not running.\n", ifname);
 		return -1;
 	}
 
-	int mode = get_wireless_mode(ifname,sock);
+	int mode = ifctrl_get_wireless_mode(ifname);
 	if (mode == -1){
 		return -1;
 	}
 	if (mode != IW_MODE_MONITOR){
 		printf("Device must be in monitor mode!\n");
-		if (set_wireless_mode(ifname, sock, IW_MODE_MONITOR) == -1){
+		if (ifctrl_set_wireless_mode(ifname, IW_MODE_MONITOR) == -1){
 			return -1;	
 		} 
 	}
 
 
-	int ifindex = ifindex_from_name(ifname, sock);
+	int ifindex = ifctrl_get_ifindex(ifname);
 
 	if (ifindex == -1){
 		return -1;
@@ -368,8 +228,6 @@ int main(int argc, char**argv){
 		parse_80211(buffer + pos, size - pos);
 
 	}
-
-
 
 	return 0;
 }

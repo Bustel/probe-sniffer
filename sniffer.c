@@ -26,7 +26,6 @@ struct ieee80211_radiotap_header {
 struct probe_request {
 		char* SSID;
 		char DA[6];
-		char* vendor_ie;  
 };
 
 #define IEEE80211_STYPE_PROBE_REQ	0x0040
@@ -43,23 +42,18 @@ char* bin2hex(unsigned char* bin, size_t size, char* delimiter){
 	int i;
 	int delim_len = 0;
 
-	if (delimiter){
-		delim_len = strlen(delimiter);
+	if (!delimiter){
+		delimiter = "";
 	} 
+	delim_len = strlen(delimiter);
 	
 	char* hex = malloc(size * (2+delim_len) - delim_len + 1);
 	if (!hex) return NULL;
-
-	if (!delimiter){
-		for (i = 0; i < size; i++){
-			sprintf(hex + (2*i),"%.2X",bin[i]);
-		}
-	} else {
-		for (i = 0; i < size -1; i++){
-			sprintf(hex + ((2+delim_len)*i),"%.2X%s",bin[i],delimiter);
-		}
-		sprintf(hex + ((2+delim_len)*(size-1)),"%.2X",bin[size-1]);
+	for (i = 0; i < size -1; i++){
+		sprintf(hex + ((2+delim_len)*i),"%.2X%s",bin[i],delimiter);
 	}
+	sprintf(hex + ((2+delim_len)*(size-1)),"%.2X",bin[size-1]);
+
 	return hex;
 }
 
@@ -156,9 +150,33 @@ void parse_80211(unsigned char* buffer, size_t size){
 
 }
 
+int bind_socket(int sock, int ifindex){
+
+	struct sockaddr_ll sll;
+	sll.sll_family = AF_PACKET;
+	sll.sll_ifindex = ifindex;
+	sll.sll_protocol = htons(ETH_P_ALL);
+
+	if ((bind(sock, (struct sockaddr *)&sll, sizeof(sll))) == -1){
+		perror("bind:");
+		return -1;
+	}
+
+	return 0;
+}
+
 
 int main(int argc, char**argv){
 	printf("Probe Request Sniffer started...\n");
+
+
+	if (argc < 2){
+		printf("No wireless interface specified.\n");
+		return -1; 
+	}
+
+	char* ifname = argv[1];
+	
 
 	int sock = socket(AF_PACKET,SOCK_RAW, htons(ETH_P_ALL));
 	if (sock == -1){
@@ -166,7 +184,6 @@ int main(int argc, char**argv){
 		return -1;
 	}
 
-	char* ifname = "wlp7s0";
 
 
 	if (ifctrl_is_up(ifname) != 1){
@@ -192,16 +209,10 @@ int main(int argc, char**argv){
 		return -1;
 	}
 
-
-	struct sockaddr_ll sll;
-	sll.sll_family = AF_PACKET;
-	sll.sll_ifindex = ifindex;
-	sll.sll_protocol = htons(ETH_P_ALL);
-
-	if ((bind(sock, (struct sockaddr *)&sll, sizeof(sll))) == -1){
-		perror("bind:");
+	if (bind_socket(sock, ifindex) == -1){
 		return -1;
 	}
+
 
 	unsigned char buffer[2048];
 	while (1){

@@ -56,7 +56,7 @@ int ifctrl_get_ifflags(char* ifname, short* flags){
 
 
 	if (ioctl(sock,SIOCGIFFLAGS,&ifr)==-1) {
-	    printf("%s",strerror(errno));
+	    printf("%s\n",strerror(errno));
 		return -1;
 	}
 
@@ -77,7 +77,7 @@ int ifctrl_set_ifflags(char* ifname, short flags){
 
 
 	if (ioctl(sock,SIOCSIFFLAGS,&ifr)==-1) {
-	    printf("%s",strerror(errno));
+	    printf("%s\n",strerror(errno));
 		return -1;
 	}
 	return 0;
